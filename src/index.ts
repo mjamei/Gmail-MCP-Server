@@ -17,6 +17,10 @@ import http from 'http';
 import open from 'open';
 import os from 'os';
 import {createEmailMessage} from "./utl.js";
+import emailAddresses from 'email-addresses';
+const { parseAddressList } = emailAddresses;
+type ParsedMailbox = emailAddresses.ParsedMailbox;
+type ParsedGroup = emailAddresses.ParsedGroup;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -52,6 +56,11 @@ interface EmailAttachment {
 interface EmailContent {
     text: string;
     html: string;
+}
+
+interface EmailAddress {
+    address: string;
+    name?: string;
 }
 
 // OAuth2 configuration
@@ -188,6 +197,14 @@ const SendEmailSchema = z.object({
     body: z.string().describe("Email body content"),
     cc: z.array(z.string()).optional().describe("List of CC recipients"),
     bcc: z.array(z.string()).optional().describe("List of BCC recipients"),
+    label: z.string().optional().describe("Gmail label to apply to the email thread"),
+});
+
+// Add new ReplyEmailSchema
+const ReplyEmailSchema = z.object({
+    messageId: z.string().describe("ID of the email message to reply to"),
+    body: z.string().describe("Reply message content"),
+    replyAll: z.boolean().optional().describe("Whether to reply to all recipients (default: false)"),
 });
 
 const ReadEmailSchema = z.object({
@@ -213,6 +230,26 @@ const DeleteEmailSchema = z.object({
 
 // New schema for listing email labels
 const ListEmailLabelsSchema = z.object({}).describe("Retrieves all available Gmail labels");
+
+/**
+ * Parse email addresses from a string containing email addresses
+ * Returns an array of email addresses without names
+ */
+function parseEmailAddresses(addressString: string): string[] {
+    if (!addressString) return [];
+    const parsed = parseAddressList(addressString);
+    if (!parsed) return [];
+    return parsed.map((addr: ParsedMailbox | ParsedGroup) => {
+        if ('address' in addr) {
+            return addr.address;
+        }
+        // For groups, recursively get addresses from group members
+        if ('addresses' in addr) {
+            return addr.addresses.map(a => a.address).join(',');
+        }
+        return '';
+    }).filter(Boolean);
+}
 
 // Main function
 async function main() {
@@ -243,6 +280,11 @@ async function main() {
                 name: "send_email",
                 description: "Sends a new email",
                 inputSchema: zodToJsonSchema(SendEmailSchema),
+            },
+            {
+                name: "reply_to_email",
+                description: "Replies to an existing email thread",
+                inputSchema: zodToJsonSchema(ReplyEmailSchema),
             },
             {
                 name: "draft_email",
@@ -295,11 +337,50 @@ async function main() {
                         raw: encodedMessage,
                     },
                 });
+
+                // If label is provided, create or find the label and apply it
+                if (validatedArgs.label) {
+                    try {
+                        // First, try to find if the label already exists
+                        const labelsResponse = await gmail.users.labels.list({ userId: 'me' });
+                        let label = labelsResponse.data.labels?.find(l => 
+                            l.name?.toLowerCase() === validatedArgs.label.toLowerCase()
+                        );
+
+                        // If label doesn't exist, create it
+                        if (!label) {
+                            const createResponse = await gmail.users.labels.create({
+                                userId: 'me',
+                                requestBody: {
+                                    name: validatedArgs.label,
+                                    labelListVisibility: 'labelShow',
+                                    messageListVisibility: 'show',
+                                },
+                            });
+                            label = createResponse.data;
+                        }
+
+                        // Apply the label to the message
+                        await gmail.users.messages.modify({
+                            userId: 'me',
+                            id: response.data.id!,
+                            requestBody: {
+                                addLabelIds: [label.id!],
+                            },
+                        });
+                    } catch (error) {
+                        console.error('Error applying label:', error);
+                        // Continue even if labeling fails
+                    }
+                }
+
                 return {
                     content: [
                         {
                             type: "text",
-                            text: `Email sent successfully with ID: ${response.data.id}`,
+                            text: `Email sent successfully\nMessage ID: ${response.data.id}\nThread ID: ${response.data.threadId}${
+                                validatedArgs.label ? `\nLabeled with: ${validatedArgs.label}` : ''
+                            }`,
                         },
                     ],
                 };
@@ -332,6 +413,92 @@ async function main() {
                     return await handleEmailAction(action, validatedArgs);
                 }
 
+                case "reply_to_email": {
+                    const validatedArgs = ReplyEmailSchema.parse(args);
+                    
+                    // Get the original message to extract headers and content
+                    const originalMessage = await gmail.users.messages.get({
+                        userId: 'me',
+                        id: validatedArgs.messageId,
+                        format: 'full',
+                        metadataHeaders: ['Subject', 'From', 'To', 'Cc', 'Message-ID', 'References', 'In-Reply-To', 'Thread-Index', 'Thread-Topic', 'Date'],
+                    });
+
+                    const headers = originalMessage.data.payload?.headers || [];
+                    const subject = headers.find(h => h.name?.toLowerCase() === 'subject')?.value || '';
+                    const from = headers.find(h => h.name?.toLowerCase() === 'from')?.value || '';
+                    const to = headers.find(h => h.name?.toLowerCase() === 'to')?.value || '';
+                    const cc = headers.find(h => h.name?.toLowerCase() === 'cc')?.value || '';
+                    const messageId = headers.find(h => h.name?.toLowerCase() === 'message-id')?.value || '';
+                    const references = headers.find(h => h.name?.toLowerCase() === 'references')?.value || '';
+
+                    // Parse email addresses using the utility function
+                    const fromEmail = parseEmailAddresses(from)[0] || '';
+                    const toEmails = parseEmailAddresses(to).filter(email => email !== fromEmail);
+                    const ccEmails = parseEmailAddresses(cc).filter(email => email !== fromEmail);
+
+                    const newReferences = references ? `${references} ${messageId}` : messageId;
+                    
+                    // Prepare recipients
+                    const recipients = validatedArgs.replyAll ? 
+                        {
+                            to: [fromEmail], // Only send to original sender
+                            cc: [...toEmails, ...ccEmails] // In reply-all, put other recipients in CC
+                        } : 
+                        {
+                            to: [fromEmail], // Only send to original sender
+                            cc: [] // No CC for regular reply
+                        };
+
+                    // Generate a unique Message-ID for our reply
+                    const newMessageId = `<${Date.now()}.${Math.random().toString(36).substr(2)}@gmail.com>`;
+                    
+                    // Build References header
+                    const refHeader = [from, toEmails.join(' ')].filter(Boolean).join(' ');
+
+                    // Extract original message content
+                    const { text, html } = extractEmailContent(originalMessage.data.payload as GmailMessagePart || {});
+                    const originalContent = text || html || '';
+
+                    // Format the quoted text with > prefix and add original sender info
+                    const quotedText = `\n\nOn ${headers.find(h => h.name?.toLowerCase() === 'date')?.value || ''}, ${from} wrote:\n` + 
+                        originalContent.split('\n').map(line => `> ${line}`).join('\n');
+
+                    // Create reply message with proper headers and quoted text
+                    const message = createEmailMessage({
+                        ...recipients,
+                        subject: subject.startsWith('Re:') ? subject : `Re: ${subject}`,
+                        body: validatedArgs.body + quotedText,
+                        headers: {
+                            'Message-ID': newMessageId,
+                            'In-Reply-To': messageId,
+                            'References': newReferences
+                        }
+                    });
+
+                    const encodedMessage = Buffer.from(message).toString('base64')
+                        .replace(/\+/g, '-')
+                        .replace(/\//g, '_')
+                        .replace(/=+$/, '');
+
+                    const response = await gmail.users.messages.send({
+                        userId: 'me',
+                        requestBody: {
+                            threadId: originalMessage.data.threadId,
+                            raw: encodedMessage
+                        },
+                    });
+
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `Reply sent successfully with ID: ${response.data.id}`,
+                            },
+                        ],
+                    };
+                }
+
                 case "read_email": {
                     const validatedArgs = ReadEmailSchema.parse(args);
                     const response = await gmail.users.messages.get({
@@ -346,11 +513,24 @@ async function main() {
                     const to = headers.find(h => h.name?.toLowerCase() === 'to')?.value || '';
                     const date = headers.find(h => h.name?.toLowerCase() === 'date')?.value || '';
 
+                    // Get label names for the message
+                    const labelIds = response.data.labelIds || [];
+                    let labelNames = '';
+                    if (labelIds.length > 0) {
+                        const labelsResponse = await gmail.users.labels.list({ userId: 'me' });
+                        const labels = labelsResponse.data.labels || [];
+                        const messageLabels = labelIds
+                            .map(id => labels.find(l => l.id === id)?.name)
+                            .filter(Boolean);
+                        if (messageLabels.length > 0) {
+                            labelNames = `\nLabels: ${messageLabels.join(', ')}`;
+                        }
+                    }
+
                     // Extract email content using the recursive function
                     const { text, html } = extractEmailContent(response.data.payload as GmailMessagePart || {});
 
                     // Use plain text content if available, otherwise use HTML content
-                    // (optionally, you could implement HTML-to-text conversion here)
                     let body = text || html || '';
 
                     // If we only have HTML content, add a note for the user
@@ -390,7 +570,7 @@ async function main() {
                         content: [
                             {
                                 type: "text",
-                                text: `Subject: ${subject}\nFrom: ${from}\nTo: ${to}\nDate: ${date}\n\n${contentTypeNote}${body}${attachmentInfo}`,
+                                text: `Subject: ${subject}\nFrom: ${from}\nTo: ${to}\nDate: ${date}${labelNames}\n\n${contentTypeNote}${body}${attachmentInfo}`,
                             },
                         ],
                     };
@@ -404,6 +584,10 @@ async function main() {
                         maxResults: validatedArgs.maxResults || 10,
                     });
 
+                    // Get all labels once to avoid multiple API calls
+                    const labelsResponse = await gmail.users.labels.list({ userId: 'me' });
+                    const allLabels = labelsResponse.data.labels || [];
+
                     const messages = response.data.messages || [];
                     const results = await Promise.all(
                         messages.map(async (msg) => {
@@ -414,11 +598,18 @@ async function main() {
                                 metadataHeaders: ['Subject', 'From', 'Date'],
                             });
                             const headers = detail.data.payload?.headers || [];
+                            
+                            // Get label names for this message
+                            const labelNames = (detail.data.labelIds || [])
+                                .map(id => allLabels.find(l => l.id === id)?.name)
+                                .filter(Boolean);
+
                             return {
                                 id: msg.id,
                                 subject: headers.find(h => h.name === 'Subject')?.value || '',
                                 from: headers.find(h => h.name === 'From')?.value || '',
                                 date: headers.find(h => h.name === 'Date')?.value || '',
+                                labels: labelNames.join(', ')
                             };
                         })
                     );
@@ -428,7 +619,7 @@ async function main() {
                             {
                                 type: "text",
                                 text: results.map(r =>
-                                    `ID: ${r.id}\nSubject: ${r.subject}\nFrom: ${r.from}\nDate: ${r.date}\n`
+                                    `ID: ${r.id}\nSubject: ${r.subject}\nFrom: ${r.from}\nDate: ${r.date}${r.labels ? '\nLabels: ' + r.labels : ''}\n`
                                 ).join('\n'),
                             },
                         ],

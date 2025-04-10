@@ -1,15 +1,13 @@
 # Gmail AutoAuth MCP Server
 
-A Model Context Protocol (MCP) server for Gmail integration in Claude Desktop with auto authentication support. This server enables AI assistants to manage Gmail through natural language interactions.
+A Model Context Protocol (MCP) server for Gmail integration in any agentic workflow.
 
-![](https://badge.mcpx.dev?type=server 'MCP Server')
-[![smithery badge](https://smithery.ai/badge/@gongrzhe/server-gmail-autoauth-mcp)](https://smithery.ai/server/@gongrzhe/server-gmail-autoauth-mcp)
 
 
 ## Features
 
 - Send emails with subject, content, attachments, and recipients
-- Full support for international characters in subject lines and email content
+- Reply to emails (with support for Reply All)
 - Read email messages by ID with advanced MIME structure handling
 - View email attachments information (filenames, types, sizes)
 - Search emails with various criteria (subject, sender, date range)
@@ -25,12 +23,10 @@ A Model Context Protocol (MCP) server for Gmail integration in Claude Desktop wi
 
 ## Installation & Authentication
 
-### Installing via Smithery
-
-To install Gmail AutoAuth for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@gongrzhe/server-gmail-autoauth-mcp):
+### Installing via npx
 
 ```bash
-npx -y @smithery/cli install @gongrzhe/server-gmail-autoauth-mcp --client claude
+npx -y @mjamei/gmail-mcp
 ```
 
 ### Installing Manually
@@ -82,20 +78,6 @@ npx -y @smithery/cli install @gongrzhe/server-gmail-autoauth-mcp --client claude
    > - Both Desktop app and Web application credentials are supported
    > - For Web application credentials, make sure to add `http://localhost:3000/oauth2callback` to your authorized redirect URIs
 
-3. Configure in Claude Desktop:
-
-```json
-{
-  "mcpServers": {
-    "gmail": {
-      "command": "npx",
-      "args": [
-        "@gongrzhe/server-gmail-autoauth-mcp"
-      ]
-    }
-  }
-}
-```
 
 ### Docker Support
 
@@ -150,7 +132,25 @@ Sends a new email immediately.
 }
 ```
 
-### 2. Draft Email (`draft_email`)
+### 2. Reply to Email (`reply_to_email`)
+Replies to an existing email thread, with support for Reply All.
+
+```json
+{
+  "messageId": "182ab45cd67ef",
+  "body": "Thanks for your email. I'll review and get back to you soon.",
+  "replyAll": true  // Optional, defaults to false
+}
+```
+
+The reply will:
+- Maintain the email thread
+- Automatically handle "Re:" subject prefix
+- Include proper email headers for threading
+- Support both simple reply (to sender) and reply-all (to all recipients)
+- Handle complex email addresses (e.g., "John Doe <john@example.com>")
+
+### 3. Draft Email (`draft_email`)
 Creates a draft email without sending it.
 
 ```json
@@ -162,7 +162,7 @@ Creates a draft email without sending it.
 }
 ```
 
-### 3. Read Email (`read_email`)
+### 4. Read Email (`read_email`)
 Retrieves the content of a specific email by its ID.
 
 ```json
@@ -171,7 +171,7 @@ Retrieves the content of a specific email by its ID.
 }
 ```
 
-### 4. Search Emails (`search_emails`)
+### 5. Search Emails (`search_emails`)
 Searches for emails using Gmail search syntax.
 
 ```json
@@ -181,7 +181,7 @@ Searches for emails using Gmail search syntax.
 }
 ```
 
-### 5. Modify Email (`modify_email`)
+### 6. Modify Email (`modify_email`)
 Adds or removes labels from emails (move to different folders, archive, etc.).
 
 ```json
@@ -192,7 +192,7 @@ Adds or removes labels from emails (move to different folders, archive, etc.).
 }
 ```
 
-### 6. Delete Email (`delete_email`)
+### 7. Delete Email (`delete_email`)
 Permanently deletes an email.
 
 ```json
@@ -201,7 +201,7 @@ Permanently deletes an email.
 }
 ```
 
-### 7. List Email Labels (`list_email_labels`)
+### 8. List Email Labels (`list_email_labels`)
 Retrieves all available Gmail labels.
 
 ```json
@@ -226,6 +226,15 @@ The `search_emails` tool supports Gmail's powerful search operators:
 You can combine multiple operators: `from:john@example.com after:2024/01/01 has:attachment`
 
 ## Advanced Features
+
+### Email Threading and Replies
+
+The server implements proper email threading:
+- Maintains conversation threads using Message-ID, References, and In-Reply-To headers
+- Automatically formats reply subjects with "Re:" prefix
+- Handles complex email address formats (with display names)
+- Supports both direct replies and reply-all functionality
+- Preserves thread IDs for proper conversation grouping in Gmail
 
 ### Email Content Extraction
 

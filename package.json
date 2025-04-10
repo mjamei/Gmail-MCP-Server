@@ -1,6 +1,6 @@
 {
-  "name": "@gongrzhe/server-gmail-autoauth-mcp",
-  "version": "1.1.1",
+  "name": "@mjamei/gmail-mcp",
+  "version": "1.8.0",
   "description": "Gmail MCP server with auto authentication support",
   "type": "module",
   "main": "dist/index.js",
@@ -8,11 +8,13 @@
     "gmail-mcp": "./dist/index.js"
   },
   "scripts": {
+    "test": "jest --config jest.config.js",
     "build": "tsc",
     "start": "node dist/index.js",
     "auth": "node dist/index.js auth",
     "prepare": "npm run build",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "build:test": "tsc -p tsconfig.test.json"
   },
   "files": [
     "dist",
@@ -29,16 +31,16 @@
     "claude",
     "auto-auth"
   ],
-  "author": "gongrzhe",
+  "author": "mjamei",
   "license": "ISC",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gongrzhe/server-gmail-autoauth-mcp.git"
+    "url": "git+https://github.com/mjamei/gmail-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/gongrzhe/server-gmail-autoauth-mcp/issues"
+    "url": "https://github.com/mjamei/gmail-mcp/issues"
   },
-  "homepage": "https://github.com/gongrzhe/server-gmail-autoauth-mcp#readme",
+  "homepage": "https://github.com/mjamei/gmail-mcp#readme",
   "publishConfig": {
     "access": "public"
   },
@@ -47,14 +49,19 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^0.4.0",
-    "googleapis": "^129.0.0",
+    "@types/email-addresses": "^3.0.0",
+    "email-addresses": "^5.0.0",
     "google-auth-library": "^9.4.1",
+    "googleapis": "^129.0.0",
     "open": "^10.0.0",
     "zod": "^3.22.4",
     "zod-to-json-schema": "^3.22.1"
   },
   "devDependencies": {
+    "@types/jest": "^29.5.12",
     "@types/node": "^20.10.5",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.2",
     "typescript": "^5.3.3"
   }
 }
