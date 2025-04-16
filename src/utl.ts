@@ -24,8 +24,9 @@ export function createEmailMessage(validatedArgs: any): string {
             throw new Error(`Recipient email address is invalid: ${email}`);
         }
     });
-
+    const headers = validatedArgs.headers || {};
     const emailParts = [
+        ...Object.entries(headers).map(([key, value]) => `${key}: ${value}`),
         'From: me',
         `To: ${validatedArgs.to.join(', ')}`,
         validatedArgs.cc ? `Cc: ${validatedArgs.cc.join(', ')}` : '',
