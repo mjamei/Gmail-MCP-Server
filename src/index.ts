@@ -112,6 +112,7 @@ async function loadCredentials() {
         let oauthPath = OAUTH_PATH;
 
         if (fs.existsSync(localOAuthPath)) {
+            // If found in current directory, copy to config directory
             fs.copyFileSync(localOAuthPath, OAUTH_PATH);
             console.log('OAuth keys found in current directory, copied to global config.');
         }
@@ -164,9 +165,7 @@ async function authenticate() {
     return new Promise<void>((resolve, reject) => {
         const authUrl = oauth2Client.generateAuthUrl({
             access_type: 'offline',
-            prompt: 'consent',
             scope: ['https://www.googleapis.com/auth/gmail.modify'],
-            access_type_extended: true
         });
 
         console.log('Please visit this URL to authenticate:', authUrl);
@@ -187,12 +186,7 @@ async function authenticate() {
 
             try {
                 const { tokens } = await oauth2Client.getToken(code);
-                oauth2Client.setCredentials(tokens);
-
-                console.log('Refresh token received:', !!tokens.refresh_token);
-                console.log('Access token expires in:', tokens.expiry_date ? 
-                    new Date(tokens.expiry_date).toLocaleTimeString() : 'N/A');
-                
+                oauth2Client.setCredentials(tokens);                
                 fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(tokens));
 
                 res.writeHead(200);
