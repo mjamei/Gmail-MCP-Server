@@ -267,8 +267,9 @@ function parseEmailAddresses(addressString: string): string[] {
 // Main function
 async function main() {
     await loadCredentials();
+    let refreshed = false;
+    if (!process.argv.includes("--disable-refresh")) refreshed =await refreshCredentials();
     if (process.argv[2] === 'auth') {
-        const refreshed = await refreshCredentials();
         if (process.argv.includes('--force') || !refreshed) {
             await authenticate();
             console.log('Authentication completed successfully');
@@ -339,9 +340,6 @@ async function main() {
 
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { name, arguments: args } = request.params;
-        if (process.argv.includes('--auto-refresh')) {
-            refreshCredentials();
-        }
 
         async function handleEmailAction(action: "send" | "draft", validatedArgs: any) {
             const message = createEmailMessage(validatedArgs);
