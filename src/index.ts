@@ -112,7 +112,6 @@ async function loadCredentials() {
         let oauthPath = OAUTH_PATH;
 
         if (fs.existsSync(localOAuthPath)) {
-            // If found in current directory, copy to config directory
             fs.copyFileSync(localOAuthPath, OAUTH_PATH);
             console.log('OAuth keys found in current directory, copied to global config.');
         }
@@ -139,11 +138,25 @@ async function loadCredentials() {
         if (fs.existsSync(CREDENTIALS_PATH)) {
             const credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
             oauth2Client.setCredentials(credentials);
+            
+            try {
+                // Get a new access token using the refresh token
+                const { credentials: refreshedCredentials } = await oauth2Client.refreshAccessToken();
+                oauth2Client.setCredentials(refreshedCredentials);
+                
+                // Save the refreshed credentials
+                fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(refreshedCredentials));
+                console.log('Successfully refreshed existing credentials');
+                return true;
+            } catch (error) {
+                console.log('Existing credentials are invalid or expired. Need to re-authenticate.');
+            }
         }
     } catch (error) {
         console.error('Error loading credentials:', error);
         process.exit(1);
     }
+    return false;
 }
 
 async function authenticate() {
@@ -153,7 +166,9 @@ async function authenticate() {
     return new Promise<void>((resolve, reject) => {
         const authUrl = oauth2Client.generateAuthUrl({
             access_type: 'offline',
+            prompt: 'consent',
             scope: ['https://www.googleapis.com/auth/gmail.modify'],
+            access_type_extended: true
         });
 
         console.log('Please visit this URL to authenticate:', authUrl);
@@ -175,6 +190,11 @@ async function authenticate() {
             try {
                 const { tokens } = await oauth2Client.getToken(code);
                 oauth2Client.setCredentials(tokens);
+
+                console.log('Refresh token received:', !!tokens.refresh_token);
+                console.log('Access token expires in:', tokens.expiry_date ? 
+                    new Date(tokens.expiry_date).toLocaleTimeString() : 'N/A');
+                
                 fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(tokens));
 
                 res.writeHead(200);
@@ -253,11 +273,13 @@ function parseEmailAddresses(addressString: string): string[] {
 
 // Main function
 async function main() {
-    await loadCredentials();
+    const refreshed = await loadCredentials();
 
     if (process.argv[2] === 'auth') {
-        await authenticate();
-        console.log('Authentication completed successfully');
+        if (process.argv.includes('--force') || !refreshed) {
+            await authenticate();
+            console.log('Authentication completed successfully');
+        }
         process.exit(0);
     }
 
@@ -321,6 +343,7 @@ async function main() {
 
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { name, arguments: args } = request.params;
+        await loadCredentials();
 
         async function handleEmailAction(action: "send" | "draft", validatedArgs: any) {
             const message = createEmailMessage(validatedArgs);
