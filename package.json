@@ -1,6 +1,6 @@
 {
   "name": "@mjamei/gmail-mcp",
-  "version": "1.8.0",
+  "version": "1.9.5",
   "description": "Gmail MCP server with auto authentication support",
   "type": "module",
   "main": "dist/index.js",

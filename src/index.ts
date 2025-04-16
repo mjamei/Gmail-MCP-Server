@@ -443,7 +443,7 @@ async function main() {
                     const recipients = validatedArgs.replyAll ? 
                         {
                             to: [fromEmail], // Only send to original sender
-                            cc: [...toEmails, ...ccEmails] // In reply-all, put other recipients in CC
+                            cc: [...ccEmails] // In reply-all, put other recipients in CC
                         } : 
                         {
                             to: [fromEmail], // Only send to original sender
@@ -467,7 +467,7 @@ async function main() {
                     // Create reply message with proper headers and quoted text
                     const message = createEmailMessage({
                         ...recipients,
-                        subject: subject.startsWith('Re:') ? subject : `Re: ${subject}`,
+                        subject: subject,
                         body: validatedArgs.body + quotedText,
                         headers: {
                             'Message-ID': newMessageId,
