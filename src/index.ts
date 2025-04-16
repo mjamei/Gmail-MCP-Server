@@ -146,6 +146,18 @@ async function loadCredentials() {
     }
 }
 
+async function refreshCredentials() {
+    try {
+        const { credentials: refreshedCredentials } = await oauth2Client.refreshAccessToken();
+        oauth2Client.setCredentials(refreshedCredentials);
+        fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(refreshedCredentials));
+        return true;
+    } catch (error) {
+        console.error('Error refreshing credentials:', error);
+        return false;
+    }
+}
+
 async function authenticate() {
     const server = http.createServer();
     server.listen(3000);
@@ -154,6 +166,7 @@ async function authenticate() {
         const authUrl = oauth2Client.generateAuthUrl({
             access_type: 'offline',
             scope: ['https://www.googleapis.com/auth/gmail.modify'],
+            prompt: 'consent',
         });
 
         console.log('Please visit this URL to authenticate:', authUrl);
@@ -254,10 +267,16 @@ function parseEmailAddresses(addressString: string): string[] {
 // Main function
 async function main() {
     await loadCredentials();
-
+    let refreshed = false;
+    if (!process.argv.includes("--disable-refresh")) refreshed =await refreshCredentials();
     if (process.argv[2] === 'auth') {
-        await authenticate();
-        console.log('Authentication completed successfully');
+        if (process.argv.includes('--force') || !refreshed) {
+            await authenticate();
+            console.log('Authentication completed successfully');
+        }
+        else if (refreshed) {
+            console.log('Successfully refreshed existing credentials');
+        }
         process.exit(0);
     }
 
