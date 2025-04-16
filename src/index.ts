@@ -166,6 +166,7 @@ async function authenticate() {
         const authUrl = oauth2Client.generateAuthUrl({
             access_type: 'offline',
             scope: ['https://www.googleapis.com/auth/gmail.modify'],
+            prompt: 'consent',
         });
 
         console.log('Please visit this URL to authenticate:', authUrl);
