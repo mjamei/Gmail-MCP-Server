@@ -100,7 +100,7 @@ function extractEmailContent(messagePart: GmailMessagePart): EmailContent {
     return { text: textContent, html: htmlContent };
 }
 
-async function loadCredentials(autoRefresh: boolean = false) {
+async function loadCredentials() {
     try {
         // Create config directory if it doesn't exist
         if (!fs.existsSync(CONFIG_DIR)) {
@@ -138,25 +138,23 @@ async function loadCredentials(autoRefresh: boolean = false) {
         if (fs.existsSync(CREDENTIALS_PATH)) {
             const credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
             oauth2Client.setCredentials(credentials);
-            if (autoRefresh) {
-                try {
-                    // Get a new access token using the refresh token
-                    const { credentials: refreshedCredentials } = await oauth2Client.refreshAccessToken();
-                    oauth2Client.setCredentials(refreshedCredentials);
-                    
-                    // Save the refreshed credentials
-                    fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(refreshedCredentials));
-                    return true;
-                } catch (error) {
-                    console.log('Existing credentials are invalid or expired. Need to re-authenticate.');
-                }
-            }
         }
     } catch (error) {
         console.error('Error loading credentials:', error);
         process.exit(1);
     }
-    return false;
+}
+
+async function refreshCredentials() {
+    try {
+        const { credentials: refreshedCredentials } = await oauth2Client.refreshAccessToken();
+        oauth2Client.setCredentials(refreshedCredentials);
+        fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(refreshedCredentials));
+        return true;
+    } catch (error) {
+        console.error('Error refreshing credentials:', error);
+        return false;
+    }
 }
 
 async function authenticate() {
@@ -273,9 +271,9 @@ function parseEmailAddresses(addressString: string): string[] {
 
 // Main function
 async function main() {
-
+    await loadCredentials();
     if (process.argv[2] === 'auth') {
-        const refreshed = await loadCredentials(true);
+        const refreshed = await refreshCredentials();
         if (process.argv.includes('--force') || !refreshed) {
             await authenticate();
             console.log('Authentication completed successfully');
@@ -346,7 +344,9 @@ async function main() {
 
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { name, arguments: args } = request.params;
-        await loadCredentials(process.argv.includes('--auto-refresh'));
+        if (process.argv.includes('--auto-refresh')) {
+            refreshCredentials();
+        }
 
         async function handleEmailAction(action: "send" | "draft", validatedArgs: any) {
             const message = createEmailMessage(validatedArgs);
