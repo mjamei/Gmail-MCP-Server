@@ -186,7 +186,7 @@ async function authenticate() {
 
             try {
                 const { tokens } = await oauth2Client.getToken(code);
-                oauth2Client.setCredentials(tokens);                
+                oauth2Client.setCredentials(tokens);
                 fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(tokens));
 
                 res.writeHead(200);
